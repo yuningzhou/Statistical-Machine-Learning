@@ -1,0 +1,225 @@
+---
+title: "Final Exam"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Lasso, random forrest, boosting and support vector regression
+We want to study the relationship between Hb1ac and other predictors. Hb1ac a form of hemoglobin that is chemically linked to a sugar. Simply speaking we want to study the relationship between blood-sugar levels and other variables which you can view in the accompanied data_dictionary file. 
+
+In the code that follows, we load the data, perform a linear regression, create the design matrix $X \in \Re^{n \times p}$ and the response vector $y \in \Re^{p \times 1}$ where $n$ is the number of observations and $p$ is the number of predictors.
+
+
+```{r,warning = FALSE, messages = FALSE, echo=FALSE, include=FALSE}
+rm(list = ls())    #delete objects
+cat("\014")        #clear console
+require(tidyverse); 
+require(modelr); ## packages for data manipulation and computing rmse easily.
+require(glmnet)
+require(glmnetUtils)
+require(usdm) #variance inflation factor
+
+######### Correct Directory Required ########
+# In the code below you need to set the correct path to the csv file. Note that `.` means the directory you are currrently at. You can get your workign directory by running `getwd` and setting it by `setwd  functions.
+d        =   read_csv("./cleaned_data_BB_7-13-20.csv")
+#############################################
+
+names(d) =   tolower(names(d)) ## make variable names lowercase because it's easier.
+d        =   d %>% filter(!is.na(hb1ac)) ## remove samples with no data on response variable
+d        =   d %>% mutate(eduCat = ifelse(educationcat > 1, 2, educationcat)) %>% mutate(educationcat = NULL)
+d        =   d %>% mutate(propageunder35 = d$propageunder18 + d$propage18to34) 
+d        =   d %>% mutate(marital = ifelse(maritalstatus == 3, 1, 0)) %>% mutate(maritalstatus = NULL) ## truncate categorical maritalstatus variable into new `marital` variable, remove original 
+# removed  
+all.terms = as.formula(hb1ac ~ sex +  age + income + insuranceyes + eduCat + yearsresidencyusa + marin  + marital+ ipaq + mealplanning + foodshopping  + foodsecuritydichotomous + snap  + bmi + k6    + agemigrant + kcal +
+density + transitivity + propfemale +propageunder35   + propallfamily +  propclosefamily +  propfriend +  relatdiversity +  propbcmexcsamr +  propengspk +  propliveothctry +  propsamehh+ propsamehhornh+ propbcmexliveoc +  propbcmxscamliveoc +  propcloseliveoc +  propstusacult +    propcntcdaily+ propcntcdaywk +  propclose + propeathealthy +  propeattrad +  propeatamer +  propobese +  propobeseow +  propinfad  +  propeatwith +  propeatwithhealthy +  propeatwithtrad +  propeatwithamer + propencour + propeithersuppt + propbothsuppt + propactwith + propdiabetes +  propchurch + constraint + workingyes    +  homemakeryes + loseweight + generalhealth10 + acculturativestress1 + aculturativestress2 + aculturativestress3 + aculturativestress4 + aculturativestress5 + aculturativestress6 + aculturativestress7 + aculturativestress8 + aculturativestress9 + propdifficult) 
+
+lm.fit   =     lm(all.terms, data = d)
+X        =     model.matrix(lm.fit)
+y        =     d$hb1ac
+n        =     dim(X)[1]
+p        =     dim(X)[2]  # this is including the intercept
+
+```
+
+
+## part 0:
+Set the seed to zero and split the data into $20\%$ test and $80\%$ train.
+```{r}
+set.seed(0)
+train_size <- floor(0.8 * nrow(X))
+train_ind <- sample(seq_len(nrow(X)), size = train_size)
+X <- X[,-1]
+X <- scale(X)
+X_train <- X[train_ind, ]
+X_test <- X[-train_ind, ]
+y_train <- y[train_ind]
+y_test <- y[-train_ind]
+```
+
+## part a: lasso regression (3 points)
+Use the glmnet function  to perform lasso regression. 
+
+Plot the $n$-fold cross-validation (CV) error.
+
+Use CV error to perform model selection and then use the estimated coefficients to compute the train and test MSE. 
+
+
+```{r}
+set.seed(0)
+#  cv.glmnet ...
+cvfit <- cv.glmnet(X_train, y_train, alpha = 1, intercept = T, standardize = F, nfolds = length(y_train))
+#  glmnet
+lambda_best = cvfit$lambda.min
+bestfit <- glmnet(X_train, y_train, alpha = 1, intercept = T, standardize = F, lambda = lambda_best)
+#  plot cv
+plot(cvfit)
+#  test and train mse ...
+y_train_ls <- predict(bestfit, X_train)
+MSE_train_ls <- mean((y_train_ls - y_train)^2)
+y_test_ls <- predict(bestfit, X_test)
+MSE_test_ls <- mean((y_test_ls - y_test)^2)
+print(c(MSE_train_ls, MSE_test_ls))
+```
+
+## part b: random forrest (3 points)
+Train a random forrest with $m=\sqrt(p)$ and 500 trees. Compute the train and test MSE. 
+
+```{r}
+library(randomForest)
+set.seed(0)
+#  train rf ...
+rf <- randomForest(x = X_train, y = y_train, ntree = 500, mtry = sqrt(dim(X_train)[2]))
+#  test and train mse ...
+y_train_rf <- predict(rf, X_train)
+MSE_train_rf <- mean((y_train_rf - y_train)^2)
+y_test_rf <- predict(rf, X_test)
+MSE_test_rf <- mean((y_test_rf - y_test)^2)
+print(c(MSE_train_rf, MSE_test_rf))
+```
+
+## part c: boosting (3 points)
+Train a boosted regression trees. Change the interaction depts 2,3,4,5 and compute the train and test MSE. What interaction depth gives smallest test MSE?
+
+
+```{r}
+library(gbm)
+set.seed(0)
+#  train boosted regression trees ...
+depths_ <- c(2, 3, 4, 5)
+MSE_test_ <- rep(0, 4)
+
+for (i in 1:4){
+set.seed(0)
+model_gbm <- gbm.fit(X_train, y_train, distribution = "gaussian", n.minobsinnode = 1, verbose = FALSE, interaction.depth = depths_[i])
+  y_train_pred <- predict(model_gbm, X_train)
+  y_test_pred <- predict(model_gbm, X_test)
+  MSE_train <- mean((y_train_pred - y_train)^2)
+  MSE_test_[i] <- mean((y_test_pred - y_test)^2)
+  print(c(i, MSE_train, MSE_test_[i]))
+}
+#  test and train mse ...
+print(paste('Best interaction depth:', depths_[which.min(MSE_test_)]))
+
+set.seed(0) # for reproducibility
+model_gbm <- gbm.fit(X_train, y_train, distribution = "gaussian", verbose = FALSE, interaction.depth = depths_[which.min(MSE_test_)]) 
+y_train_gbm <- predict(model_gbm, X_train)
+y_test_gbm <- predict(model_gbm, X_test)
+MSE_train_gbm <- mean((y_train_gbm - y_train)^2)
+MSE_test_gbm <- mean((y_test_gbm - y_test)^2)
+print(c(MSE_train_gbm, MSE_test_gbm))
+```
+
+## part d: support vector regression (10 points)
+Support vector regression uses the following loss $L(y,\hat y) = 1(|y-\hat y| > \epsilon) \times (|y-\hat y| - \epsilon)$, where $1(|y-\hat y| > \epsilon)$ is the indicator function that is 1 if $|y-\hat y| > \epsilon$ and 0 if $|y-\hat y| \leq \epsilon$. This loss is robust to outliers in the sense that for large residuls $|y-\hat y|$ it scales linearly (as opposed to the quadratic scaling in least squares). Moreover, there is no cost incured as long as the residulas are small, eg. $|y-\hat y| \leq \epsilon$. So $\epsilon$ is a free parameter that we set here using cross validation. Read section 12.3.6 of the ESL book for reference.
+
+
+
+Perform the following steps:
+\begin{itemize}
+\item Use a linear kernel. 
+\item Perform cross validation on a grid of values $\epsilon=0.01, 0.02, 0.03, \cdots, 0.1$ and cost$=0.01, 0.1, 0.5, 1, 5, 10$ values ....
+\item What is the loss used in the cross validation (CV)?
+\item Plot the cross validation heat map.
+\item Train a linear kernel support vector regression using the optimal parameters selected using CV.
+\item Does the local minimum CV happens at the boudary of the map?  If yes, how would you change $\epsilon=0.01, 0.02, 0.03, \cdots, 0.1$ and cost$=0.01, 0.1, 0.5, 1, 5, 10$ values so that CV heatmap might possibly includ a local minimum? 
+\item Compute the train and test error.
+\end{itemize}
+
+
+
+
+```{r}
+library(e1071)
+library(ggplot2)
+set.seed(0)
+#  train a linear svr...
+model_svm <- svm(X_train, y_train, kernel = 'linear')
+#  do cv using the tune fucntion
+eps_ <- (1:10) / 100
+costs_ <- c(0.01, 0.1, 0.5, 1, 5, 10)
+obj <- tune.svm(X_train, y_train, kernel = 'linear', epsilon = eps_,
+                cost = costs_,
+                tunecontrol = tune.control(sampling = "cross"))
+#  plot 
+err_plot <- matrix(0, 10, 6)
+for (i in 1:dim(obj$performances)[1]){
+  r <- which(eps_ == obj$performances[i, 2])
+  c <- which(costs_ == obj$performances[i, 1])
+  err_plot[r, c] <- obj$performances[i, 3]
+}
+ggplot(obj$performances, aes(as.factor(cost), as.factor(epsilon), fill= error)) +
+geom_tile()
+#  train using the optimal parameters
+model_best <- svm(X_train, y_train, kernel = 'linear',
+                  epsilon = obj$best.parameters$epsilon,
+cost = obj$best.parameters$cost)
+#  test and train mse ...
+y_train_svm <- predict(model_best, X_train)
+y_test_svm <- predict(model_best, X_test)
+MSE_train_svm <- mean((y_train_svm - y_train)^2)
+MSE_test_svm <- mean((y_test_svm - y_test)^2)
+print(c(MSE_train_svm, MSE_test_svm))
+```
+
+## part g: Summary table (2 points)
+Present the test and train MSEs in a $2 \times 4$ table with appropiate labels.
+```{r}
+col_ls <- c(MSE_train_ls, MSE_test_ls)
+col_rf <- c(MSE_train_rf, MSE_test_rf)
+col_gbm <- c(MSE_train_gbm, MSE_test_gbm)
+col_svm <- c(MSE_train_svm, MSE_test_svm)
+df <- data.frame(col_ls, col_rf, col_gbm, col_svm)
+rownames(df) <- c('Training MSE', 'Testing MSE')
+colnames(df) <- c('LASSO', 'Random Forest', 'GBM', 'SVM')
+df
+```
+
+## part h: Summary figure (2 points)
+Create a $4 \times 2$ figures with rows corresponding to each of these four methods and each column to train and test data, and each pannel should be a plot $y$ versus $\hat y$. The objective is to see how these methods are qualitatively different. Make sure the figure are as large possible within one page, and make sure that the $y=\hat y$ line is also included so we can see better when the models over estimate or under estimate. Say a few words about the interpretation of the results.
+
+```{r}
+library(cowplot)
+pred_train <- data.frame(y_train_ls, y_train_rf, y_train_gbm, y_train_svm)
+pred_test <- data.frame(y_test_ls, y_test_rf, y_test_gbm, y_test_svm)
+plots_ <- list()
+titles_ <- c('LASSO', 'Random Forest', 'GBM', 'SVM')
+for (i in 1:4){
+  df_temp <- data.frame(x=y_train, y=pred_train[, i])
+  plots_[[2 * i - 1]] <- ggplot(df_temp, aes(x=x, y=y)) + geom_point() + xlab("Truth (Train)") + ylab("Pred (Train)") + ggtitle(titles_[i])
+  df_temp <- data.frame(x=y_test, y=pred_test[, i])
+  plots_[[2 * i]] <- ggplot(df_temp, aes(x=x, y=y)) + geom_point() +
+  xlab("Truth (Test)") +
+  ylab("Pred (Test)") +
+  ggtitle("")
+}
+plot_grid(plots_[[1]], plots_[[2]], plots_[[3]], plots_[[4]], plots_[[5]], plots_[[6]], plots_[[7]], plots_[[8]],
+ncol = 2, rel_widths = c(1, 1))
+
+```
+
+

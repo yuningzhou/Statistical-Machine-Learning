@@ -1,0 +1,90 @@
+---
+title: "Homework assignment 3"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+set.seed(13)
+```
+
+## Problem 1: loading the data, preprocessing and linear regression
+We want to study the relationship between Hb1ac and other predictors. Hb1ac a form of hemoglobin that is chemically linked to a sugar. Simply speaking we want to study the relationship between blood-sugar levels and other variables which you can view in the accompanied data_dictionary file. This data is not published yet, and it is related to an active NIH grant and is not meant to be shared in the public domain. 
+
+In the code that follows, we load the data, perform a linear regression, create the design matrix $X \in \Re^{n \times p}$ and the response vector $y \in \Re^{p \times 1}$ where $n$ is the number of observations and $p$ is the number of predictors.
+
+
+```{r,warning = FALSE, messages = FALSE, echo=FALSE, include=FALSE}
+rm(list = ls())    #delete objects
+cat("\014")        #clear console
+require(tidyverse); 
+require(modelr); ## packages for data manipulation and computing rmse easily.
+require(glmnet)
+require(glmnetUtils)
+require(usdm) #variance inflation factor
+
+######### Correct Directory Required ########
+# In the code below you need to set the correct path to the csv file. Note that `.` means the directory you are currrently at. You can get your workign directory by running `getwd` and setting it by `setwd  functions.
+d        =   read_csv("./cleaned_data_w_labels_BB_7-13-20.csv")
+#############################################
+
+names(d) =   tolower(names(d)) ## make variable names lowercase because it's easier.
+d        =   d %>% filter(!is.na(hb1ac)) ## remove samples with no data on response variable
+d        =   d %>% mutate(eduCat = ifelse(educationcat > 1, 2, educationcat)) %>% mutate(educationcat = NULL)
+d        =   d %>% mutate(propageunder35 = d$propageunder18 + d$propage18to34) 
+d        =   d %>% mutate(marital = ifelse(maritalstatus == 3, 1, 0)) %>% mutate(maritalstatus = NULL) ## truncate categorical maritalstatus variable into new `marital` variable, remove original 
+# removed  
+all.terms = as.formula(hb1ac ~ sex +  age + income + insuranceyes + eduCat + yearsresidencyusa + marin  + marital+ ipaq + mealplanning + foodshopping  + foodsecuritydichotomous + snap  + bmi + k6    + agemigrant + kcal +
+density + transitivity + propfemale +propageunder35   + propallfamily +  propclosefamily +  propfriend +  relatdiversity +  propbcmexcsamr +  propengspk +  propliveothctry +  propsamehh+ propsamehhornh+ propbcmexliveoc +  propbcmxscamliveoc +  propcloseliveoc +  propstusacult +    propcntcdaily+ propcntcdaywk +  propclose + propeathealthy +  propeattrad +  propeatamer +  propobese +  propobeseow +  propinfad  +  propeatwith +  propeatwithhealthy +  propeatwithtrad +  propeatwithamer + propencour + propeithersuppt + propbothsuppt + propactwith + propdiabetes +  propchurch + constraint + workingyes    +  homemakeryes + loseweight + generalhealth10 + acculturativestress1 + aculturativestress2 + aculturativestress3 + aculturativestress4 + aculturativestress5 + aculturativestress6 + aculturativestress7 + aculturativestress8 + aculturativestress9 + propdifficult) 
+
+lm.fit   =     lm(all.terms, data = d)
+X        =     model.matrix(lm.fit)
+y        =     d$hb1ac
+n        =     dim(X)[1]
+p        =     dim(X)[2]  # this is including the intercept
+
+```
+
+## Problem 1: controling for some variables
+Since $p$ is larger than (or comparable) to $n$ we need to perform variable selection. But there are certain variables that we want to keep in the model regardless of whether there is evidence that they are strongly associated with the response. These variables are sex,  age, income, insuranceyes and eduCat which are the first five variables. 
+
+In order to do that, similar to the problem in the exam, we compute the projection onto the subspace spanned by the columns of $X$ that correspond to the variables we want to keep in the model.  Let us us call that  matrix  $X_1$ and the remaining matrix $X_2$.
+
+Do the following:
+\begin{itemize}
+\item compute the projection matrix $H_1$, and $\tilde y_2 = y - H_1 y$ and $\tilde X_2 = (I - H_1)X_2$
+\item use $n$-fold cross validation to perform lasso regression of $\tilde y_2$ against $\tilde X_2$
+\item plot the cross validation curve
+\item present the estimate coeeficients, excluding the five, in a table.
+\end{itemize}
+
+Note that the first column of $X$ is the intercept. Also note that the glmnet function has an option to include/exclude the intercept. Hint: `%*%` does matrix multiplication.
+
+
+```{r, warning = FALSE, messages = FALSE, echo=TRUE}
+X1          =     as.matrix(as.data.frame(X) %>% select(sex,  age, income, insuranceyes, eduCat))
+X2 = as.matrix(as.data.frame(X) %>% select(!c(sex,  age, income, insuranceyes, eduCat)))
+H1          =     (X1) %*% solve(t(X1) %*% (X1)) %*% t(X1)
+tilde_y2    =     y - H1 %*% y
+tilde_X2    =     (as.matrix(diag(1,71,71)) - H1) %*% X2
+
+# cv.glmnet, including or excluding the intercept?
+cv.fit = cv.glmnet(tilde_X2, tilde_y2, nfold = n, alpha = 1, intercept = FALSE)
+#  plot the cv curve
+plot(cv.fit)
+#  lambda minimizing n-fold cv
+lambda_lasso = cv.fit$lambda.min
+
+#  refitting using the lambda found above
+model_lasso = glmnet(x = tilde_X2, y = tilde_y2, alpha = 1, lambda = lambda_lasso)
+#  preseting the estimate coefficients in table
+coeff_lasso = model_lasso$beta
+coeff_lasso
+```
+
+
+## Problem 2
+Ex. 3.30 from the Elements of Statistical Learning book on page 99.
+

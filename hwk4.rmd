@@ -1,0 +1,195 @@
+---
+title: "Homework assignment 4"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Problem 1: Lasso, random forrest, boosting and support vector regression
+Read sections 3.2.1 and 3.3.4 of the Elements of Statistical Learning about Prostate Cancer Data Example. The data is available of the book's webpage \url{https://hastie.su.domains/ElemStatLearn/}. 
+
+```{r}
+library(readr)
+prostate <- read_table2("prostate.txt")
+# prostate <- scale(prostate,TRUE,TRUE)
+library(dplyr)
+library(glmnet)
+```
+
+## part a: lasso regression (3 points)
+Use the glmnet function  to perform lasso regression. 
+
+Plot the $n$-fold cross-validation (CV) error.
+
+Use CV error to perform model selection and then use the estimated coefficients to compute the train and test MSE. 
+
+```{r}
+X <- prostate[-c(1)]
+y = prostate$lpsa
+n = dim(X)[1]
+p = 8  
+
+train_set <- X[X$train==TRUE,]
+test_set <- X[X$train==FALSE,]
+
+y_train <- train_set$lpsa
+y_test <- test_set$lpsa
+X_train <- train_set[-c(9,10)]
+X_test <- test_set[-c(9,10)]
+X_train <- as.data.frame(scale(X_train,T,T))
+X_test <- as.data.frame(scale(X_test,T,T))
+dat_train <- data.frame(y = y_train,x = X_train)
+dat_test <- data.frame(y = y_test,x = X_test)
+```
+
+```{r}
+set.seed(0)
+#  cv.glmnet ...
+cv.fit = cv.glmnet(as.matrix(X_train), y_train, nfolds = 67, intercept = T , alpha = 1)
+#  glmnet
+lambda_lasso = cv.fit$lambda.min
+model_lasso = glmnet(x = X_train, y = y_train, alpha = 1, lambda = lambda_lasso)
+#  plot cv
+plot(cv.fit)
+#  test and train mse ...
+p_train_ls <- predict(model_lasso, as.matrix(X_train))
+mse_train_ls = mean((y_train - p_train_ls) ^ 2)
+p_test_ls <- predict(model_lasso, as.matrix(X_test))
+mse_test_ls = mean((y_test - p_test_ls) ^ 2)
+mse_train_ls
+mse_test_ls
+```
+
+## part b: random forrest (3 points)
+Train a random forest with $m=\sqrt(p)$ and 500 trees. Compute the train and test MSE. 
+
+```{r}
+set.seed(0)
+library(randomForest)
+library(datasets)
+#  train rf ...
+m = sqrt(p)
+rf <- randomForest(y~., data=dat_train[,1:9], ntree=500, mtry=m) 
+print(rf)
+#  test and train mse ...
+p_train_rf <- predict(rf, dat_train[,1:9])
+mse_train_rf = mean((y_train - p_train_rf) ^ 2)
+p_test_rf <- predict(rf, dat_test[,1:9])
+mse_test_rf = mean((y_test - p_test_rf) ^ 2)
+mse_train_rf
+mse_test_rf
+```
+
+## part c: boosting (3 points)
+Train a boosted regression trees. Change the interaction depts 2,3,4, and compute the train and test MSE. What interaction depth gives smallest test MSE?
+
+```{r}
+set.seed(0)
+library(xgboost)
+library(gbm)
+
+#  train boosted regression trees ...
+boost2 = gbm(y ~ . ,data = dat_train[,1:9],distribution = "gaussian",n.trees = 100, interaction.depth = 2)
+summary(boost2)
+
+boost3 = gbm(y ~ . ,data = dat_train[,1:9],distribution = "gaussian",n.trees = 100, interaction.depth = 3)
+summary(boost3)
+
+boost4 = gbm(y ~ . ,data = dat_train[,1:9],distribution = "gaussian",n.trees = 100, interaction.depth = 4)
+summary(boost4)
+
+#  test and train mse ...
+p_train_gbm2 <- predict(boost2, dat_train[,1:9])
+mse_train_gbm2 = mean((y_train - p_train_gbm2) ^ 2)
+p_test_gbm2 <- predict(boost2, dat_test[,1:9])
+mse_test_gbm2 = mean((y_test - p_test_gbm2) ^ 2)
+
+p_train_gbm3 <- predict(boost3, dat_train[,1:9])
+mse_train_gbm3 = mean((y_train - p_train_gbm3) ^ 2)
+p_test_gbm3 <- predict(boost3, dat_test[,1:9])
+mse_test_gbm3 = mean((y_test - p_test_gbm3) ^ 2)
+
+p_train_gbm4 <- predict(boost4, dat_train[,1:9])
+mse_train_gbm4 = mean((y_train - p_train_gbm4) ^ 2)
+p_test_gbm4 <- predict(boost4, dat_test[,1:9])
+mse_test_gbm4 = mean((y_test - p_test_gbm4) ^ 2)
+
+mse_test_gbm = min(mse_test_gbm2,mse_test_gbm3,mse_test_gbm4)
+
+print("The interaction depth 3 gives smallest test MSE. ")
+```
+
+## part d: support vector regression (6 points)
+Support vector regression uses the following loss $L(y,\hat y) = 1(|y-\hat y| > \epsilon) \times (|y-\hat y| - \epsilon)$, where $1(|y-\hat y| > \epsilon)$ is the indicator function that is 1 if $|y-\hat y| > \epsilon$ and 0 if $|y-\hat y| \leq \epsilon$. This loss is robust to outliers in the sense that for large residuls $|y-\hat y|$ it scales linearly (as opposed to the quadratic scaling in least squares). Moreover, there is no cost incured as long as the residulas are small, eg. $|y-\hat y| \leq \epsilon$. So $\epsilon$ is a free parameter that we set here using cross validation. Read section 12.3.6 of the ESL book for reference.
+
+Perform the following steps:
+\begin{itemize}
+\item Use a linear kernel. 
+\item Perform cross validation on a grid of values $\epsilon=0.1, 0.2, \cdots, 1$ and cost$=0.1, 0.5, 1, 5, 10, 50, 100$ values ....
+\item What is the loss used in the cross validation (CV)?
+\item Plot the cross validation heat map.
+\item Train a linear kernel support vector regression using the optimal parameters selected using CV.
+\item Compute the train and test error.
+\end{itemize}
+
+```{r}
+#  train a linear svr...
+library(e1071)
+set.seed(0)
+
+#  do cv using the tune function
+tune.out <- tune(svm, y ~ ., data = dat_train[,1:9], kernel = "linear", ranges = list(cost = c(0.1, 0.5, 1, 5, 10, 50, 100), epsilon = seq(from = 0.1, to = 1, by = 0.1)))
+
+summary(tune.out)
+#  plot 
+plot(tune.out)
+
+#  train using the optimal parameters
+bestmod <- tune.out$best.model
+summary(bestmod)
+
+#  test and train mse ...
+p_train_svm <- as.numeric(predict(bestmod, dat_train))
+mse_train_svm = mean((y_train - p_train_svm) ^ 2)
+p_test_svm <- as.numeric(predict(bestmod, dat_test))
+mse_test_svm = mean((y_test - p_test_svm) ^ 2)
+mse_train_svm
+mse_test_svm
+
+```
+
+## part g: Summary table (2 points)
+Present the test and train MSEs in a $2 \times 4$ table with appropiate labels.
+```{r}
+mse_train = c(mse_train_ls,mse_train_rf,mse_train_gbm3,mse_train_svm)
+mse_test = c(mse_test_ls,mse_test_rf,mse_test_gbm3,mse_test_svm)
+mse.data <- data.frame(mse_train, mse_test)
+mse.data = as.data.frame(t(mse.data))
+colnames(mse.data) = c('Lasso','Random Forest','Boosting','SVM')
+mse.data
+```
+
+## part h: Summary figure (2 points)
+Create a $4 \times 2$ figures with rows corresponding to each of the four methods and each column to train and test data, and each panel should be a plot $y$ versus $\hat y$. The objective is to see how these methods are qualitatively different.
+```{r}
+par(mfrow = c(4, 2), mar = c(2,2,2,2))  
+plot(p_train_ls,y_train,main = "lasso_train")
+plot(p_test_ls,y_test,main = "lasso_test")
+plot(p_train_rf,y_train,main = "rf_train")
+plot(p_test_rf,y_test,main = "rf_test")
+plot(p_train_gbm3,y_train,main = "gbm_train")
+plot(p_test_gbm3,y_test,main = "gbm_test")
+plot(p_train_svm,y_train,main = "svm_train")
+plot(p_test_svm,y_test,main = "svm_test")
+
+```
+
+## Problem 2 (6 points)
+Read section 10.5 of the ESL book. Show that $\arg \min_f E_{Y|x} \log(1+ e^{-2Y f(x)}) = \arg \min_f E_{Y|x} e^{-Y f(x)}$.
+
+## Extra credit: Problem 3 (6 points)
+Problem 12.1 of the ESL book.

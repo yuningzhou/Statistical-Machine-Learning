@@ -1,0 +1,134 @@
+---
+title: "midtermQ1"
+author: "Yuning Zhou"
+date: '2022-03-11'
+output: html_document
+---
+Load package datasets and load the Iris data set using the ‘data(”iris”)’
+command. We will try to predict the species of iris from the sepal length and width and the
+petal length and width using k−nearest neighbors. We will use a pseudo random number
+to “randomly” divide the data. This produces a deterministic split with the properties
+of a random split. Pseudo random numbers are often helpful for debugging. To set the
+seed, use the command set.seed(13), where 13 is the seed. Please read about how to
+write user-defined functions in R (https://www.w3schools.com/r/r_functions.asp)
+to answer the following questions.
+
+```{r}
+library(datasets)
+library(class)
+library(ggplot2)
+iris <- iris
+```
+
+a. Write a function named ‘split.data‘ that divides the iris data into training and testing
+sets in the following way: Use the function sample to make a new ordering for your
+data. Use the first 100 reordered observations as your training set and the last 50 as
+your testing set. Output a named list where the names are ”train” and ”test” and the
+values are the corresponding datasets.
+
+```{r}
+set.seed(13)
+split.data <- function(){
+data_new <- iris[sample(nrow(iris), nrow(iris)),] 
+train_set <- data_new[1:100, ]
+test_set <- tail(data_new, n=50) 
+return(list(train=train_set, test=test_set))
+}
+split.data()[["train"]]
+split.data()[["test"]]
+```
+
+b. Write a function named ‘misclassification.knn‘ using the function knn from the package
+class where it takes the following arguments as inputs:
+• data: a named list containing training and testing data.
+• type: a string which is either ”train” or ”test” which determines the output of the
+function is either misclassification rate on the training data or test data.
+• K: a sequence of k values for k-nearest neighbor method.
+This function should output a vector with values corresponding to misclassification
+rates for each K. As an example ‘misclassification.knn(data = data, type = ”train”,
+k = c(1,2,3))’ should output a vector of length three with the corresponding training
+misclassification errors.
+
+```{r}
+set.seed(13)
+
+misclassification.knn <- function(data, type, K){
+err <- c() 
+if (type == "train") {
+  for (ki in K){
+    y_hat <- knn(data[["train"]][,1:4], data[[type]][,1:4], data[["train"]][,5], ki)
+    e <- sum(y_hat != data[[type]][,5]) / nrow(data[[type]])
+    err <- append(err, e)
+}
+
+}else if (type == "test"){
+  for (ki in K){
+    y_hat <- knn(data[["test"]][,1:4], data[[type]][,1:4], data[["test"]][,5], ki)
+    e <- sum(y_hat != data[[type]][,5]) / nrow(data[[type]])
+    err <- append(err, e)
+}
+}
+  return(err)
+}
+
+misclassification.knn(data = split.data(), type = "train", K = c(1,2,3))
+```
+
+c. In this part we want to plot the misclassification rates for training and test against k =
+1,2,3,4,5,6,7,8,9,10,20,30,40,50 using the functions developed above, however this
+splitting is subject to randomness. In order to harness that we repeat this procedure
+4 times and plot them on a SINGLE graph. Distinguish the lines by changing the
+color, point type; include a legend. This plot should have 8 lines in total, 4 for
+misclassification rates on the training datasets, and 4 for misclassification rates on the
+testing datasets.
+
+```{r}
+train_line_1 <- misclassification.knn(data = split.data(), type = "train", K = c(1,2,3,4,5,6,7,8,9,10,20,30,40,50))
+train_line_1
+test_line_1 <- misclassification.knn(data = split.data(), type = "test", K = c(1,2,3,4,5,6,7,8,9,10,20,30,40,50))
+test_line_1
+
+train_line_2 <- misclassification.knn(data = split.data(), type = "train", K = c(1,2,3,4,5,6,7,8,9,10,20,30,40,50))
+train_line_2
+test_line_2 <- misclassification.knn(data = split.data(), type = "test", K = c(1,2,3,4,5,6,7,8,9,10,20,30,40,50))
+test_line_2
+
+train_line_3 <- misclassification.knn(data = split.data(), type = "train", K = c(1,2,3,4,5,6,7,8,9,10,20,30,40,50))
+train_line_3
+test_line_3 <- misclassification.knn(data = split.data(), type = "test", K = c(1,2,3,4,5,6,7,8,9,10,20,30,40,50))
+test_line_3
+
+train_line_4 <- misclassification.knn(data = split.data(), type = "train", K = c(1,2,3,4,5,6,7,8,9,10,20,30,40,50))
+train_line_4
+test_line_4 <- misclassification.knn(data = split.data(), type = "test", K = c(1,2,3,4,5,6,7,8,9,10,20,30,40,50))
+test_line_4
+```
+plot 8 lines
+```{r}
+df <- data.frame(
+  x = c(1,2,3,4,5,6,7,8,9,10,20,30,40,50),
+  y1 = train_line_1,
+  y2 = test_line_1,
+  y3 = train_line_2,
+  y4 = test_line_2,
+  y5 = train_line_3,
+  y6 = test_line_3,
+  y7 = train_line_4,
+  y8 = test_line_4
+)
+
+plot_8_line <- ggplot(df, aes(x=x, y=rate)) + 
+  geom_line(aes(y = y1), color = "black") + 
+  geom_line(aes(y = y2), color = "blue") + 
+  geom_line(aes(y = y3), color = "purple") + 
+  geom_line(aes(y = y4), color = "red") + 
+  geom_line(aes(y = y5), color = "orange") + 
+  geom_line(aes(y = y6), color = "steelblue") + 
+  geom_line(aes(y = y7), color = "cyan") + 
+  geom_line(aes(y = y8), color = "azure") + 
+  ggtitle("rate")
+
+
+plot_8_line
+
+```
